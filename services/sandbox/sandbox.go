@@ -28,11 +28,11 @@ import (
 type Config struct {
 	LogLevel     string             `mapstructure:"log_level"`
 	SharedVolume string             `mapstructure:"shared_volume"`
+	SnapshotName string             `mapstructure:"snapshot_name"`
+	Agent        AgentCfg           `mapstructure:"agent"`
+	VirtMgr      VirtManagerCfg     `mapstructure:"libvirt"`
 	Producer     config.ProducerCfg `mapstructure:"producer"`
 	Consumer     config.ConsumerCfg `mapstructure:"consumer"`
-	Agent        AgentCfg           `mapstructure:"agent"`
-	virtMgr      VirtManagerCfg     `mapstructure:"virt_manager"`
-	snapshotName string             `mapstructure:"snapshot_name"`
 }
 
 // AgentCfg represents the guest agent config.
@@ -46,10 +46,13 @@ type AgentCfg struct {
 // VirtManagerCfg represents the virtualization manager config.
 // For now, only libvirt server.
 type VirtManagerCfg struct {
+	// Specify whether a remote or local session.
+	// local session uses "unix" and ignore the fields below.
 	Network string `mapstructure:"network"`
+	// IP address of the host running libvirt RPC server.
 	Address string `mapstructure:"address"`
-	port    string `mapstructure:"port"`
-	user    string `mapstructure:"user"`
+	// Port number of the SSH server.
+	Port string `mapstructure:"port"`
 }
 
 // VM represents a virtual machine config.
@@ -82,6 +85,11 @@ type Service struct {
 	sandbox []byte
 }
 
+type scanResult struct {
+	res     agent.FileScanResult
+	version string
+}
+
 func toJSON(v interface{}) []byte {
 	b, _ := json.Marshal(v)
 	return b
@@ -93,15 +101,19 @@ func New(cfg Config, logger log.Logger) (*Service, error) {
 	s := Service{}
 
 	// retrieve the list of active VMs.
-	conn, err := vmmanager.New(cfg.virtMgr.Network, cfg.virtMgr.Address,
-		cfg.virtMgr.port, cfg.virtMgr.user)
+	conn, err := vmmanager.New(cfg.VirtMgr.Network, cfg.VirtMgr.Address,
+		cfg.VirtMgr.Port)
 	if err != nil {
 		return nil, err
 	}
+	logger.Info("Connection established to server")
+
 	dd, err := conn.Domains()
 	if err != nil {
 		return nil, err
 	}
+
+	logger.Infof("Active domains: %v", dd)
 
 	var vms []VM
 	for _, d := range dd {
@@ -185,7 +197,7 @@ func (s *Service) HandleMessage(m *gonsq.Message) error {
 	logger.Infof("VM %s was selected", vm.Name)
 
 	// Revert the VM to a clean state.
-	err = s.vmm.Revert(*vm.Dom, s.cfg.snapshotName)
+	err = s.vmm.Revert(*vm.Dom, s.cfg.SnapshotName)
 	if err != nil {
 		logger.Errorf("failed to revert the VM: %v", err)
 	}
@@ -222,7 +234,7 @@ func (s *Service) HandleMessage(m *gonsq.Message) error {
 }
 
 func (s *Service) detonate(logger log.Logger, vm *VM,
-	sha256 string, cfg config.DynFileScanCfg) (agent.FileScanResult, error) {
+	sha256 string, cfg config.DynFileScanCfg) (scanResult, error) {
 
 	ctx := context.Background()
 
@@ -231,20 +243,20 @@ func (s *Service) detonate(logger log.Logger, vm *VM,
 	client, err := agent.New(vm.IP)
 	if err != nil {
 		logger.Errorf("failed to establish connection to server: %v", err)
-		return agent.FileScanResult{}, nil
+		return scanResult{}, nil
 	}
 
 	// Deploy the sandbox component files inside the guest.
 	ver, err := client.Deploy(ctx, s.cfg.Agent.AgentDestDir, s.sandbox)
 	if err != nil {
-		return agent.FileScanResult{}, nil
+		return scanResult{}, nil
 	}
 	logger.Infof("sandbox version %s has been deployed", ver)
 
 	src := filepath.Join(s.cfg.SharedVolume, sha256)
 	sampleContent, err := utils.ReadAll(src)
 	if err != nil {
-		return agent.FileScanResult{}, nil
+		return scanResult{}, nil
 	}
 
 	// Analyze the sample. This call will block until results
@@ -252,10 +264,10 @@ func (s *Service) detonate(logger log.Logger, vm *VM,
 	sandboxCfg := toJSON(cfg)
 	res, err := client.Analyze(ctx, sandboxCfg, sampleContent)
 	if err != nil {
-		return agent.FileScanResult{}, nil
+		return scanResult{}, nil
 	}
 
-	return res, nil
+	return scanResult{res: res, version: ver}, nil
 
 }
 

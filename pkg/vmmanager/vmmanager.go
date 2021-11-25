@@ -5,7 +5,7 @@
 package vmmanager
 
 import (
-	"fmt"
+	"errors"
 	"time"
 
 	"github.com/digitalocean/go-libvirt"
@@ -40,7 +40,7 @@ type Domain struct {
 // New creates a new libvirt RPC connection.  It dials libvirt
 // either on the local machine or the remote one depending on
 // the network parameter ("tcp" for rmote and "unix" for local),
-func New(network, address, port, user string) (VMManager, error) {
+func New(network, address, port string) (VMManager, error) {
 
 	var err error
 	var conn *libvirt.Libvirt
@@ -53,9 +53,9 @@ func New(network, address, port, user string) (VMManager, error) {
 	case "tcp":
 		dialer := dialers.NewRemote(address, dialers.UsePort(port))
 		conn = libvirt.NewWithDialer(dialer)
-		uri := fmt.Sprintf("qemu+ssh://%s@%s/system", user, address)
-		err = conn.ConnectToURI(libvirt.ConnectURI(uri))
-
+		err = conn.Connect()
+	default:
+		return VMManager{}, errors.New("unknown libvirt network")
 	}
 
 	if err != nil {
