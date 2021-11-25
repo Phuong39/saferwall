@@ -13,10 +13,18 @@ minikube-install:		## Install minikube
 		fi
 
 minikube-up:			## Start minikube cluster.
-	sudo apt update -qq
-	sudo apt install -qq nfs-common
+	# conntrack only required for None driver.
+	cat /etc/os-release | grep ubuntu; \
+		if [ $$? -eq 1 ]; then \
+			echo "${GREEN} [*] Running in fedora ${RESET}"; \
+			sudo dnf check-update; \
+			sudo dnf -yq install nfs-common conntrack socat; \
+		else \
+			echo "${GREEN} [*] Running in ubuntu ${RESET}"; \
+			sudo apt update -qq; \
+			sudo apt install -qq nfs-common conntrack socat; \
+		fi
 ifeq ($(MINIKUBE_DRIVER),none)
-	sudo apt install -qq conntrack
 	CHANGE_MINIKUBE_NONE_USER=true sudo -E minikube start --driver=none
 else
 	minikube start --driver=$(MINIKUBE_DRIVER) --cpus $(MINIKUBE_CPU) \

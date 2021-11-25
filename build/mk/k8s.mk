@@ -1,4 +1,4 @@
-KUBECTL_VER = 1.21.0
+KUBECTL_VER = 1.21.1
 kubectl-install:		## Install kubectl.
 	@kubectl version --client | grep $(KUBECTL_VER); \
 		if [ $$? -eq 1 ]; then \
