@@ -160,6 +160,20 @@ services:
     volumes:
       - samples:/samples
 
+  sandbox:
+    image: saferwall/sandbox:latest
+    environment:
+      - SAFERWALL_DEPLOYMENT_KIND=dev
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - samples:/samples
+      - /var/run/libvirt/libvirt-sock:/var/run/libvirt/libvirt-sock
+    tty: true
+    entrypoint: /bin/sh
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+
 volumes:
   minio_data:
   couchbase_data:
